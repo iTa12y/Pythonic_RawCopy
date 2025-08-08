@@ -27,4 +27,8 @@ Clone the repository or download the source files:
 
 ```bash
 git clone https://github.com/yourusername/Pythonic_RawCopy.git
+<<<<<<< HEAD
 cd Pythonic_RawCopy
+=======
+cd Pythonic_RawCopy
+>>>>>>> ac75fa3da02f15b54b72eec8b7ee154a2184ac82

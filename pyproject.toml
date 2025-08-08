@@ -1,4 +1,5 @@
 [project]
+<<<<<<< HEAD
 name = "Pythonic_RawCopy"
 version = "0.1.0"
 description = "Copy file from NTFS image using MFT"
@@ -10,3 +11,11 @@ dependencies = ['boto3']
 members = [
     "src",
 ]
+=======
+name = "mft-based-copy"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = ['boto3']
+>>>>>>> ac75fa3da02f15b54b72eec8b7ee154a2184ac82

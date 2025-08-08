@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 __pycache__
 package.json
 relate.project.json
@@ -6,3 +7,15 @@ file_parser/__pycache_2
 # ruff linter
 .ruff_cache
 file_parser/.ruff_cache
+=======
+# Python-generated files
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+
+# Virtual environments
+.venv
+>>>>>>> ac75fa3da02f15b54b72eec8b7ee154a2184ac82
