@@ -27,17 +27,17 @@ def write_entry(output_dir, item, base_path):
 
 def main():
     parser = argparse.ArgumentParser(description="Copy file from NTFS image using MFT")
+    parser.add_argument("--volume", help="Volume to scan, e.g. '\\\\.\\C:', Or a path to an NTFS image file.")
     parser.add_argument("--file_path", help="Path to the file in NTFS to extract")
     parser.add_argument("--output_dir", help="Directory to write the output")
     args = parser.parse_args()
     
     bs = BootSector()
-    vol = r'\\.\C:'
-    boot_info = bs.read(vol)
+    boot_info = bs.read(args.volume)
     
     logger.info(f"Using cluster_size={int(boot_info['cls'])}, mft_cluster={int(boot_info['mft'])}")
     
-    res = scan(vol, int(boot_info['cls']), int(boot_info['mft']), args.file_path)
+    res = scan(args.volume, int(boot_info['cls']), int(boot_info['mft']), args.file_path)
     
     if isinstance(res, list):
       base_path = args.file_path.replace('\\', '/')
