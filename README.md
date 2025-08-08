@@ -1,12 +1,11 @@
-# NTFS MFT File Extractor
-
+# Pythonic_RawCopy
 A Python tool to locate and extract files directly from an NTFS volume image using the Master File Table (MFT). This utility parses raw MFT entries to reconstruct file paths and extract file contents without mounting the volume.
 
 ---
 
 ## Features
 
-- Parses the NTFS MFT directly from a raw volume (e.g., `\\.\C:`).
+- Parses the NTFS MFT directly from a raw volume (e.g., `\\.\C:`) or a raw Image.
 - Multithreaded MFT entry parsing for performance.
 - Reconstructs full file paths from MFT parent-child relationships.
 - Supports extracting both resident and non-resident file data.
@@ -18,7 +17,7 @@ A Python tool to locate and extract files directly from an NTFS volume image usi
 ## Requirements
 
 - Python 3.10+
-- Runs on Windows (requires access to NTFS volume devices, e.g., `\\.\C:`)
+- Runs on Windows (requires access to NTFS volume devices, e.g., `\\.\C:`, or instead a raw Image which is not requiring administrative access to NTFS volume devices)
 
 ---
 
@@ -27,5 +26,5 @@ A Python tool to locate and extract files directly from an NTFS volume image usi
 Clone the repository or download the source files:
 
 ```bash
-git clone https://github.com/yourusername/ntfs-mft-extractor.git
-cd ntfs-mft-extractor
+git clone https://github.com/yourusername/Pythonic_RawCopy.git
+cd Pythonic_RawCopy
