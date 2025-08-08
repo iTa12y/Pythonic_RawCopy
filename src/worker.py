@@ -1,11 +1,14 @@
 import os
 import re
-import time
+import logging
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from helper import MFTEntry
 
 ENTRY_SIZE = 1024
-CHUNK_SIZE = 5000 
+CHUNK_SIZE = 5000
+
+logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s')
+logger = logging.getLogger(__name__)
 
 def read_buffer(chunk_data, start_index, count):
     entries = {}
@@ -46,11 +49,10 @@ def collect(parent_id, id_to_entry, cluster_size):
     return collected
 
 def scan(image_path, cluster_size, mft_cluster, target_path):
-    start_time = time.time()
     target_path = os.path.abspath(target_path).replace('\\', '/').lower()
     target_path = re.sub(r'^[a-z]:', '', target_path)
     
-    print(f"[DEBUG] Looking for file: {target_path}")
+    logger.info(f"Looking for file: {target_path}")
     id_to_entry = {}
 
     with open(image_path, 'rb') as f:
@@ -73,29 +75,33 @@ def scan(image_path, cluster_size, mft_cluster, target_path):
                 except Exception as e:
                     continue
 
-    print(f"[DEBUG] Parsed {len(id_to_entry)} valid MFT entries")
+    logger.info(f"Parsed {len(id_to_entry)} valid MFT entries")
     # First: find the MFT record for the target path
     target_id = None
     for idx, (name, parent, entry_data) in id_to_entry.items():
-        full_path = build(idx, id_to_entry).lower()
-        if full_path == target_path:
-            target_id = idx
-            entry = MFTEntry(entry_data, cluster_size)
-            if entry.is_directory():
-                print(f"[DEBUG] Directory match found at record {idx}")
-            else:
-                print(f"[DEBUG] File match found at record {idx}")
-            break
-
+          if entry_data is None:
+                continue
+          full_path = build(idx, id_to_entry).lower()
+          if full_path == target_path:
+                target_id = idx
+                entry = MFTEntry(entry_data, cluster_size)
+                if entry.is_directory():
+                          logger.info(f"Directory match found at record {idx}")
+                else:
+                          logger.info(f"File match found at record {idx}")
+                break
+    
     if target_id is None:
-        elapsed = time.time() - start_time
-        print(f"[DEBUG] Scan completed in {elapsed:.2f} seconds — No match found")
-        raise FileNotFoundError(f"Path '{target_path}' not found in MFT")
-
-    # If directory, collect children
-    entry = MFTEntry(id_to_entry[target_id][2], cluster_size)
+          raise FileNotFoundError(f"Path '{target_path}' not found in MFT")
+        
+    entry_data = id_to_entry[target_id][2]
+    if entry_data is None:
+          logger.error(f"Entry data for target_id {target_id} is None!")
+          return None
+    
+    entry = MFTEntry(entry_data, cluster_size)
     if entry.is_directory():
       children = collect(target_id, id_to_entry, cluster_size)
-      print(f"[DEBUG] Found {len(children)} children under '{target_path}' (recursive)")
+      logger.debug(f"Found {len(children)} children under '{target_path}' (recursive)")
       return children
-
+    return entry

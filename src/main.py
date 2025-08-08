@@ -1,6 +1,6 @@
 import os
 import argparse
-from worker import scan
+from worker import scan, logger
 from helper import BootSector, MFTEntry
 
 def write_entry(output_dir, item, base_path):
@@ -8,7 +8,7 @@ def write_entry(output_dir, item, base_path):
         path, entry = item
         data = entry.get_file_raw_data()
         if not data:
-            print(f"Failed to read file data for {os.path.basename(path)} it might be empty or corrupted, skipping.")
+            logger.error(f"Failed to read file data for {os.path.basename(path)} it might be empty or corrupted, skipping.")
             return
         # Make path relative to base_path, so nested structure is preserved properly
         rel_path = os.path.relpath(path, start=base_path).replace('/', os.sep)
@@ -35,7 +35,7 @@ def main():
     vol = r'\\.\C:'
     boot_info = bs.read(vol)
     
-    print(f"Using cluster_size={int(boot_info['cls'])}, mft_cluster={int(boot_info['mft'])}")
+    logger.info(f"Using cluster_size={int(boot_info['cls'])}, mft_cluster={int(boot_info['mft'])}")
     
     res = scan(vol, int(boot_info['cls']), int(boot_info['mft']), args.file_path)
     
@@ -51,14 +51,14 @@ def main():
         filename = entry.get_filename()[0]
         data = entry.get_file_raw_data()
         if not data:
-            print("Failed to read file data")
+            logger.error("Failed to read file data")
             return
         
         out_path = os.path.join(args.output_dir, filename)   
         with open(out_path, 'wb') as f:
             f.write(data)
 
-        print(f"File written to: {out_path}")
+        logger.info(f"File written to: {out_path}")
         return
 
 if __name__ == "__main__":
