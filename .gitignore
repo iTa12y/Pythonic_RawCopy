@@ -1,0 +1,8 @@
+__pycache__
+package.json
+relate.project.json
+file_parser/__pycache_2
+
+# ruff linter
+.ruff_cache
+file_parser/.ruff_cache
