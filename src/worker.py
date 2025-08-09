@@ -10,15 +10,15 @@ CHUNK_SIZE = 5000
 logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
-def read_buffer(chunk_data, start_index, count):
+def read_buffer(chunk_data, start_index, count, cluster_size):
     entries = {}
     for i in range(count):
         try:
             offset = i * ENTRY_SIZE
             entry_data = chunk_data[offset:offset + ENTRY_SIZE]
-            entry = MFTEntry(entry_data)
+            entry = MFTEntry(entry_data, cluster_size)
             if entry.is_valid():
-                name, parent = entry.get_filename()
+                name, parent = entry.filename()
                 entries[start_index + i] = (name, parent, entry_data)
         except:
             continue
@@ -69,7 +69,7 @@ def scan(image_path, cluster_size, mft_cluster, target_path):
         
         # Process chunks in parallel
         with ThreadPoolExecutor(max_workers=min(8, len(chunks))) as exe:
-            futures = [exe.submit(read_buffer, chunk_data, chunk_start, chunk_size) 
+            futures = [exe.submit(read_buffer, chunk_data, chunk_start, chunk_size, cluster_size) 
                       for chunk_data, chunk_start, chunk_size in chunk_data_list]
             
             for future in as_completed(futures):
@@ -100,7 +100,7 @@ def scan(image_path, cluster_size, mft_cluster, target_path):
     
     if deleted:
         logger.info(f"Found deleted file at record {deleted[0]}")
-        return deleted[1].data if deleted else None
+        return deleted[1]
     
     raise FileNotFoundError(f"Path '{target_path}' not found in MFT")
 
@@ -114,7 +114,7 @@ def write(output_dir, item, base_path):
     out_path = os.path.join(output_dir, rel_path)
     
     if len(item) == 2:  # File
-        data = entry.get_file_raw_data()
+        data = entry.raw_data()
         if not data:
             logger.error(f"Failed to read file data for {os.path.basename(path)} it might be empty or corrupted, skipping.")
             return
