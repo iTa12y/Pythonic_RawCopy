@@ -45,63 +45,83 @@ def collect(parent_id, id_to_entry, cluster_size):
                 children = collect(idx, id_to_entry, cluster_size)
                 collected.append((full_path, entry, children))
             else:
-                collected.append((full_path, entry))
+                collected.append((full_path, entry))   
     return collected
-
+    
 def scan(image_path, cluster_size, mft_cluster, target_path):
     target_path = os.path.abspath(target_path).replace('\\', '/').lower()
     target_path = re.sub(r'^[a-z]:', '', target_path)
-    
     logger.info(f"Looking for file: {target_path}")
+    deleted = None
     id_to_entry = {}
-
+    
     with open(image_path, 'rb') as f:
         base_offset = int(mft_cluster) * int(cluster_size)
         max_entries = 2000000
-        chunks = [(i, min(CHUNK_SIZE, max_entries - i)) for i in range(0, max_entries, CHUNK_SIZE)]
+        chunks = [(i, min(CHUNK_SIZE, max_entries - i)) for i in range(0, max_entries, CHUNK_SIZE)]     
         
-        with ThreadPoolExecutor(max_workers=4) as exe:
-            futures = []
-            for chunk_start, chunk_size in chunks:
-                f.seek(base_offset + (chunk_start * ENTRY_SIZE))
-                chunk_data = f.read(chunk_size * ENTRY_SIZE)
-                future = exe.submit(read_buffer, chunk_data, chunk_start, chunk_size)
-                futures.append(future)
+        # Read all chunks first
+        chunk_data_list = []
+        for chunk_start, chunk_size in chunks:
+            f.seek(base_offset + (chunk_start * ENTRY_SIZE))
+            chunk_data = f.read(chunk_size * ENTRY_SIZE)
+            chunk_data_list.append((chunk_data, chunk_start, chunk_size))
+        
+        # Process chunks in parallel
+        with ThreadPoolExecutor(max_workers=min(8, len(chunks))) as exe:
+            futures = [exe.submit(read_buffer, chunk_data, chunk_start, chunk_size) 
+                      for chunk_data, chunk_start, chunk_size in chunk_data_list]
             
             for future in as_completed(futures):
                 try:
-                    entries = future.result()
-                    id_to_entry.update(entries)
-                except Exception as e:
+                    id_to_entry.update(future.result())
+                except:
                     continue
+    
+    logger.info(f"Parsed {len(id_to_entry)} valid MFT entries")  
+    
+    # Find the target path
+    for idx, (_, _, entry_data) in id_to_entry.items():
+        if entry_data is None:
+            continue
+        full_path = build(idx, id_to_entry).lower()
+        if full_path == target_path:
+            entry = MFTEntry(entry_data, cluster_size)
+            if entry.is_directory():
+                logger.info(f"Directory match found at record {idx}")
+                children = collect(idx, id_to_entry, cluster_size)
+                logger.info(f"Found {len(children)} children under '{target_path}' (recursive)")
+                return children
+            elif entry.is_deleted():
+                deleted = (idx, entry)
+            else:
+                logger.info(f"File match found at record {idx}")
+                return entry
+    
+    if deleted:
+        logger.info(f"Found deleted file at record {deleted[0]}")
+        return deleted[1].data if deleted else None
+    
+    raise FileNotFoundError(f"Path '{target_path}' not found in MFT")
 
-    logger.info(f"Parsed {len(id_to_entry)} valid MFT entries")
-    # First: find the MFT record for the target path
-    target_id = None
-    for idx, (name, parent, entry_data) in id_to_entry.items():
-          if entry_data is None:
-                continue
-          full_path = build(idx, id_to_entry).lower()
-          if full_path == target_path:
-                target_id = idx
-                entry = MFTEntry(entry_data, cluster_size)
-                if entry.is_directory():
-                          logger.info(f"Directory match found at record {idx}")
-                else:
-                          logger.info(f"File match found at record {idx}")
-                break
+
+def write(output_dir, item, base_path):
+    path = item[0]
+    entry = item[1]
     
-    if target_id is None:
-          raise FileNotFoundError(f"Path '{target_path}' not found in MFT")
-        
-    entry_data = id_to_entry[target_id][2]
-    if entry_data is None:
-          logger.error(f"Entry data for target_id {target_id} is None!")
-          return None
+    # Create relative path once
+    rel_path = os.path.relpath(path, start=base_path).replace('/', os.sep)
+    out_path = os.path.join(output_dir, rel_path)
     
-    entry = MFTEntry(entry_data, cluster_size)
-    if entry.is_directory():
-      children = collect(target_id, id_to_entry, cluster_size)
-      logger.debug(f"Found {len(children)} children under '{target_path}' (recursive)")
-      return children
-    return entry
+    if len(item) == 2:  # File
+        data = entry.get_file_raw_data()
+        if not data:
+            logger.error(f"Failed to read file data for {os.path.basename(path)} it might be empty or corrupted, skipping.")
+            return
+        os.makedirs(os.path.dirname(out_path), exist_ok=True)
+        with open(out_path, 'wb') as f:
+            f.write(data)
+    else:  # Directory (len == 3)
+        os.makedirs(out_path, exist_ok=True)
+        for child in item[2]:  # children
+            write(output_dir, child, base_path)
