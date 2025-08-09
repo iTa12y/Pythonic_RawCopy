@@ -53,7 +53,6 @@ def scan(image_path, cluster_size, mft_cluster, target_path):
     target_path = re.sub(r'^[a-z]:', '', target_path)
     target_filename = os.path.basename(target_path).lower()
     logger.info(f"Looking for file: {target_path}")
-    deleted = None
     id_to_entry = {}
     
     with open(image_path, 'rb') as f:
@@ -100,9 +99,6 @@ def scan(image_path, cluster_size, mft_cluster, target_path):
                 logger.info(f"File match found at record {idx}")
                 return entry
         
-
-            
-    
     raise FileNotFoundError(f"Path '{target_path}' not found in MFT")
 
 
