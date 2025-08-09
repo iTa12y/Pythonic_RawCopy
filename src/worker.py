@@ -49,10 +49,10 @@ def collect(parent_id, id_to_entry, cluster_size):
     return collected
     
 def scan(image_path, cluster_size, mft_cluster, target_path):
+    logger.info(f"Looking for file: {target_path}")
     target_path = os.path.abspath(target_path).replace('\\', '/').lower()
     target_path = re.sub(r'^[a-z]:', '', target_path)
     target_filename = os.path.basename(target_path).lower()
-    logger.info(f"Looking for file: {target_path}")
     id_to_entry = {}
     
     with open(image_path, 'rb') as f:
