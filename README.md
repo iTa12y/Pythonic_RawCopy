@@ -26,5 +26,5 @@ A Python tool to locate and extract files directly from an NTFS volume image usi
 Clone the repository or download the source files:
 
 ```bash
-git clone https://github.com/yourusername/Pythonic_RawCopy.git
+git clone https://github.com/iTa12y/Pythonic_RawCopy.git
 cd Pythonic_RawCopy
