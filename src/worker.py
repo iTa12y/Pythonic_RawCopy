@@ -51,6 +51,7 @@ def collect(parent_id, id_to_entry, cluster_size):
 def scan(image_path, cluster_size, mft_cluster, target_path):
     target_path = os.path.abspath(target_path).replace('\\', '/').lower()
     target_path = re.sub(r'^[a-z]:', '', target_path)
+    target_filename = os.path.basename(target_path).lower()
     logger.info(f"Looking for file: {target_path}")
     deleted = None
     id_to_entry = {}
@@ -81,7 +82,7 @@ def scan(image_path, cluster_size, mft_cluster, target_path):
     logger.info(f"Parsed {len(id_to_entry)} valid MFT entries")  
     
     # Find the target path
-    for idx, (_, _, entry_data) in id_to_entry.items():
+    for idx, (name, _, entry_data) in id_to_entry.items():
         if entry_data is None:
             continue
         full_path = build(idx, id_to_entry).lower()
@@ -92,15 +93,15 @@ def scan(image_path, cluster_size, mft_cluster, target_path):
                 children = collect(idx, id_to_entry, cluster_size)
                 logger.info(f"Found {len(children)} children under '{target_path}' (recursive)")
                 return children
-            elif entry.is_deleted():
-                deleted = (idx, entry)
+            elif name.lower() == target_filename and entry.is_deleted():
+                logger.info(f"Found deleted file '{name}' at record {idx} (possible match)")
+                return entry         
             else:
                 logger.info(f"File match found at record {idx}")
                 return entry
-    
-    if deleted:
-        logger.info(f"Found deleted file at record {deleted[0]}")
-        return deleted[1]
+        
+
+            
     
     raise FileNotFoundError(f"Path '{target_path}' not found in MFT")
 
