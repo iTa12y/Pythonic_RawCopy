@@ -27,7 +27,7 @@ class MFTEntry:
     
     def is_directory(self) -> bool: return (int.from_bytes(self.data[22:24], 'little') & 0x0002) != 0
     
-    def get_filename(self) -> tuple[str, int]:
+    def filename(self) -> tuple[str, int]:
         offset = int.from_bytes(self.data[20:22], 'little')
         long_name = None
         short_name = None
@@ -67,7 +67,7 @@ class MFTEntry:
 
         return (long_name or short_name or "Unknown", parent_ref)
 
-    def get_file_raw_data(self) -> bytes:
+    def raw_data(self) -> bytes:
         offset = int.from_bytes(self.data[20:22], 'little')
         
         while offset < 1024:
