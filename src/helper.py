@@ -20,12 +20,9 @@ class BootSector:
 class MFTEntry:
     data: bytes
     cluster_size: int = 4096
-    
-    def is_valid(self) -> bool: return self.data[0:4] == b'FILE'
-
-    def is_deleted(self) -> bool: return (int.from_bytes(self.data[22:24], 'little') & 0x01) == 0
-    
-    def is_directory(self) -> bool: return (int.from_bytes(self.data[22:24], 'little') & 0x0002) != 0
+    is_valid = lambda self: self.data[0:4] == b'FILE'
+    is_deleted = lambda self: (int.from_bytes(self.data[22:24], 'little') & 0x01) == 0
+    is_directory = lambda self: (int.from_bytes(self.data[22:24], 'little') & 0x0002) != 0
     
     def filename(self) -> tuple[str, int]:
         offset = int.from_bytes(self.data[20:22], 'little')
