@@ -6,3 +6,15 @@ file_parser/__pycache_2
 # ruff linter
 .ruff_cache
 file_parser/.ruff_cache
+
+# vscode settings
+.vscode/
+.history/
+.vscode-chat/
+.vscode-test/
+
+# UV logs
+uv.log
+uv_debug.log
+uv_errors.log
+
