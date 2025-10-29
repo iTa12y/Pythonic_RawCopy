@@ -11,21 +11,8 @@ MAX_ENTRIES = 2_000_000
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
 
-def iter_mft_entries(volume, base_offset, cls):
-    with open(volume, 'rb') as f:
-        for i in range(MAX_ENTRIES):
-            f.seek(base_offset + i * ENTRY_SIZE)
-            data = f.read(ENTRY_SIZE)
-            if len(data) < ENTRY_SIZE:
-                break
-            entry = MFTEntry(data, cls)
-            if not (entry.is_valid() or entry.is_deleted()):
-                continue
-            name, parent = entry.filename()
-            if name and parent is not None:
-                yield i, name, parent, entry
 
-def parallel_entries(volume, base_offset, cls):
+def process_e(volume, base_offset, cls):
     def parse_chunk(start, count):
         results = []
         with open(volume, 'rb') as f:
@@ -57,16 +44,16 @@ def build_path(fid, lookup):
         fid = parent
     return '/' + '/'.join(reversed(parts))
 
-def collect_children(pid, lookup, cls):
+def col_child(pid, lookup, cls):
     for fid, (name, parent, entry) in lookup.items():
         if parent == pid:
             full_path = build_path(fid, {k: (v[0], v[1]) for k, v in lookup.items()})
-            yield (full_path, entry, list(collect_children(fid, lookup, cls))) if entry.is_directory() else(full_path, entry)
+            yield (full_path, entry, list(col_child(fid, lookup, cls))) if entry.is_directory() else(full_path, entry)
 
 def scan(volume, cls, mft_offset, path, recover_deleted=False, pid=None):
     logger.info(f"Scanning for: {path or 'deleted files'}")
     base_offset = int(mft_offset) * int(cls)
-    entries = {i: (n, p, e) for i, n, p, e in parallel_entries(volume, base_offset, cls)}
+    entries = {i: (n, p, e) for i, n, p, e in process_e(volume, base_offset, cls)}
     logger.info(f"Parsed {len(entries)} valid MFT entries")
 
     if not path:
@@ -75,7 +62,7 @@ def scan(volume, cls, mft_offset, path, recover_deleted=False, pid=None):
             for name, parent, entry in (v for v in entries.values() if v[2].is_deleted()):
                 if name not in (None, "Unknown"):
                     out.write(f"{name},{parent}\n")
-                    out.close()
+                out.close()
         logger.info(f"Deleted filenames written to {out_file}")
         return
 
@@ -86,7 +73,7 @@ def scan(volume, cls, mft_offset, path, recover_deleted=False, pid=None):
         for fid, (name, parent, entry) in entries.items():
             if build_path(fid, {k: (v[0], v[1]) for k, v in entries.items()}).lower() == norm_path:
                 if entry.is_directory():
-                    children = list(collect_children(fid, entries, cls))
+                    children = list(col_child(fid, entries, cls))
                     logger.info(f"Directory found at record {fid} with {len(children)} children")
                     return children
                 logger.info(f"File match found at record {fid}")
