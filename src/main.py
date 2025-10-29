@@ -9,20 +9,22 @@ if __name__ == "__main__":
     parser.add_argument("--file_path", help="Path to the file in NTFS to extract")
     parser.add_argument("--output_dir", help="Directory to write the output")
     parser.add_argument("--recover-deleted", action="store_true", help="Search for and recover deleted files")
+    parser.add_argument("--pid", type=int, help="Parent directory ID for more precise deleted file recovery")
     args = parser.parse_args()
     bs = BootSector()
     boot_info = bs.read(args.volume)
     logger.info(f"Using cluster_size={int(boot_info['cls'])}, mft_cluster={int(boot_info['mft'])}")
-    res = scan(args.volume, int(boot_info['cls']), int(boot_info['mft']), args.file_path, args.recover_deleted)
+    res = scan(args.volume, int(boot_info['cls']), int(boot_info['mft']), args.file_path, args.recover_deleted, args.pid)
     if not args.file_path:
         exit(0)
-
+    if res is None:
+        logger.info("Deleted file scan completed, no single entry returned.")
+        exit(0)
     if isinstance(res, list):
         if args.recover_deleted and len(res) > 0 and isinstance(res[0], tuple) and isinstance(res[0][0], MFTEntry):
-            # Handle deleted file recovery
             logger.info(f"Recovering {len(res)} deleted instances...")
             for idx, (entry, full_path) in enumerate(res):
-                data = entry.raw_data()
+                data = entry.raw_data(args.volume)
                 if not data:
                     logger.warning(f"Failed to read data for deleted file at {full_path}")
                     continue
@@ -43,7 +45,7 @@ if __name__ == "__main__":
     else:
         entry = res if isinstance(res, MFTEntry) else MFTEntry(res.data, int(boot_info['cls']))
         filename = entry.filename()[0]
-        data = entry.raw_data()
+        data = entry.raw_data(args.volume)
         if not data:
             logger.error("Failed to read file data")
             exit(1)

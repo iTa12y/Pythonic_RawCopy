@@ -6,139 +6,118 @@ from helper import MFTEntry
 
 ENTRY_SIZE = 1024
 CHUNK_SIZE = 5000
+MAX_ENTRIES = 2_000_000
 
-logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s')
+logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
 
-def read_buffer(data, idx, c, cls):
-    entries = {}
-    for i in range(c):
-        offset = i * ENTRY_SIZE
-        entry_data = data[offset:offset + ENTRY_SIZE]
-        entry = MFTEntry(entry_data, cls)
-        if entry.is_deleted() or entry.is_valid():
+def iter_mft_entries(volume, base_offset, cls):
+    with open(volume, 'rb') as f:
+        for i in range(MAX_ENTRIES):
+            f.seek(base_offset + i * ENTRY_SIZE)
+            data = f.read(ENTRY_SIZE)
+            if len(data) < ENTRY_SIZE:
+                break
+            entry = MFTEntry(data, cls)
+            if not (entry.is_valid() or entry.is_deleted()):
+                continue
             name, parent = entry.filename()
-            entries[idx + i] = (name, parent, entry_data)
-    return entries
+            if name and parent is not None:
+                yield i, name, parent, entry
 
-def build(id, id_to_entry):
+def parallel_entries(volume, base_offset, cls):
+    def parse_chunk(start, count):
+        results = []
+        with open(volume, 'rb') as f:
+            f.seek(base_offset + start * ENTRY_SIZE)
+            chunk = f.read(count * ENTRY_SIZE)
+            for i in range(count):
+                entry_data = chunk[i * ENTRY_SIZE:(i + 1) * ENTRY_SIZE]
+                entry = MFTEntry(entry_data, cls)
+                if not (entry.is_valid() or entry.is_deleted()):
+                    continue
+                name, parent = entry.filename()
+                if name and parent is not None:
+                    results.append((start + i, name, parent, entry))
+        return results
+
+    chunks = [(i, min(CHUNK_SIZE, MAX_ENTRIES - i)) for i in range(0, MAX_ENTRIES, CHUNK_SIZE)]
+    with ThreadPoolExecutor(max_workers=8) as exe:
+        for future in as_completed([exe.submit(parse_chunk, s, c) for s, c in chunks]):
+            for item in future.result():
+                yield item
+
+def build_path(fid, lookup):
     parts = []
-    while id in id_to_entry:
-        name, parent, _ = id_to_entry[id]
-        if parent == id or parent not in id_to_entry:
-            break  # reached root
+    while fid in lookup:
+        name, parent = lookup[fid]
+        if parent == fid or parent not in lookup:
+            break
         parts.append(name)
-        id = parent
+        fid = parent
     return '/' + '/'.join(reversed(parts))
 
-def collect(pid, id_to_entry, cls):
-    collected = []
-    for idx, (name, parent, entry_data) in id_to_entry.items():
+def collect_children(pid, lookup, cls):
+    for fid, (name, parent, entry) in lookup.items():
         if parent == pid:
-            entry = MFTEntry(entry_data, cls)
-            full_path = build(idx, id_to_entry)
-            if entry.is_directory():
-                # It's a directory: collect its children recursively
-                children = collect(idx, id_to_entry, cls)
-                collected.append((full_path, entry, children))
-            else:
-                collected.append((full_path, entry))   
-    return collected
-    
-def scan(vol, cls, mft, path, recover_deleted=False):
-    logger.info(f"Looking for file: {path}")
-    id_to_entry = {}
-    deleted_matches = []
-    
-    with open(vol, 'rb') as f:
-        base_offset = int(mft) * int(cls)
-        max_entries = 2000000
-        chunks = [(i, min(CHUNK_SIZE, max_entries - i)) for i in range(0, max_entries, CHUNK_SIZE)]     
-        
-        chunk_data_list = []
-        for chunk_start, chunk_size in chunks:
-            f.seek(base_offset + (chunk_start * ENTRY_SIZE))
-            chunk_data = f.read(chunk_size * ENTRY_SIZE)
-            chunk_data_list.append((chunk_data, chunk_start, chunk_size))
-        
-        with ThreadPoolExecutor(max_workers=min(8, len(chunks))) as exe:
-            futures = [exe.submit(read_buffer, chunk_data, chunk_start, chunk_size, cls) 
-                      for chunk_data, chunk_start, chunk_size in chunk_data_list]
-            
-            for future in as_completed(futures):
-                id_to_entry.update(future.result())
-    
-    logger.info(f"Parsed {len(id_to_entry)} valid MFT entries")
-    
+            full_path = build_path(fid, {k: (v[0], v[1]) for k, v in lookup.items()})
+            yield (full_path, entry, list(collect_children(fid, lookup, cls))) if entry.is_directory() else(full_path, entry)
+
+def scan(volume, cls, mft_offset, path, recover_deleted=False, pid=None):
+    logger.info(f"Scanning for: {path or 'deleted files'}")
+    base_offset = int(mft_offset) * int(cls)
+    entries = {i: (n, p, e) for i, n, p, e in parallel_entries(volume, base_offset, cls)}
+    logger.info(f"Parsed {len(entries)} valid MFT entries")
+
     if not path:
-        output_file = "deleted_filenames.txt"
-        with open(output_file, "w", encoding="utf-8") as out:
-            for idx, (name, _, entry_data) in id_to_entry.items():
-                entry = MFTEntry(entry_data, cls)
-                if entry.is_deleted():
-                    if entry.filename()[0] != "Unknown" and entry.filename()[0] is not None:
-                        out.write(entry.filename()[0] + "\n")
-        logger.info(f"All deleted filenames have been listed in {output_file}")
+        out_file = "deleted_filenames.txt"
+        with open(out_file, "w", encoding="utf-8") as out:
+            for name, parent, entry in (v for v in entries.values() if v[2].is_deleted()):
+                if name not in (None, "Unknown"):
+                    out.write(f"{name},{parent}\n")
+                    out.close()
+        logger.info(f"Deleted filenames written to {out_file}")
         return
 
-    target_filename = os.path.basename(path).lower()
+    target = os.path.basename(path).lower()
+    norm_path = re.sub(r'^[a-z]:', '', os.path.abspath(path).replace('\\', '/').lower())
+
     if not recover_deleted:
-        # Normal file search with full path
-        path = os.path.abspath(path).replace('\\', '/').lower()
-        path = re.sub(r'^[a-z]:', '', path)
-        
-        for idx, (name, _, entry_data) in id_to_entry.items():
-            if entry_data is None:
-                continue
-                
-            full_path = build(idx, id_to_entry).lower()
-            entry = MFTEntry(entry_data, cls)
-            
-            if full_path == path:
+        for fid, (name, parent, entry) in entries.items():
+            if build_path(fid, {k: (v[0], v[1]) for k, v in entries.items()}).lower() == norm_path:
                 if entry.is_directory():
-                    logger.info(f"Directory match found at record {idx}")
-                    children = collect(idx, id_to_entry, cls)
-                    logger.info(f"Found {len(children)} children under '{path}' (recursive)")
+                    children = list(collect_children(fid, entries, cls))
+                    logger.info(f"Directory found at record {fid} with {len(children)} children")
                     return children
-                else:
-                    logger.info(f"File match found at record {idx}")
-                    return entry
+                logger.info(f"File match found at record {fid}")
+                return entry
     else:
-        # Deleted file search by filename only
-        for idx, (name, _, entry_data) in id_to_entry.items():
-            if entry_data is None:
-                continue
-                
-            entry = MFTEntry(entry_data, cls)
-            if entry.is_deleted() and name.lower() == target_filename:
-                full_path = build(idx, id_to_entry).lower()
-                logger.info(f"Found deleted file '{name}' at record {idx}")
-                deleted_matches.append((entry, full_path))
+        deleted = [
+            (entry, build_path(fid, {k: (v[0], v[1]) for k, v in entries.items()}).lower())
+            for fid, (name, parent, entry) in entries.items()
+            if entry.is_deleted()
+            and name.lower() == target
+            and (pid is None or (parent & 0xFFFFFFFFFFFF) == pid)
+        ]
+        if deleted:
+            logger.info(f"Found {len(deleted)} deleted instance(s) of '{target}'")
+            return sorted(deleted, key=lambda x: x[1])
 
-        if deleted_matches:
-            logger.info(f"Found {len(deleted_matches)} deleted instances of '{target_filename}'")
-            return sorted(deleted_matches, key=lambda x: x[1])
-            
-    raise FileNotFoundError(f"{'File' if not recover_deleted else 'Deleted file'} '{target_filename}' not found in MFT")
+    raise FileNotFoundError(f"{'Deleted file' if recover_deleted else 'File'} '{target}' not found")
 
-
-def write(output, item, path):
-    path = item[0]
-    entry = item[1]
-    
-    # Create relative path once
-    rel_path = os.path.relpath(path, start=path).replace('/', os.sep)
-    out_path = os.path.join(output, rel_path)
-    
-    if len(item) == 2:  # File
+def write(output_dir, item, base_path):
+    path, entry, *children = item
+    rel_path = os.path.relpath(path, start=base_path).replace('/', os.sep)
+    out_path = os.path.join(output_dir, rel_path)
+    if not children:  # File
         data = entry.raw_data()
         if not data:
-            logger.error(f"Failed to read file data for {os.path.basename(path)} it might be empty or corrupted, skipping.")
+            logger.warning(f"Skipping empty/corrupted file {os.path.basename(path)}")
             return
         os.makedirs(os.path.dirname(out_path), exist_ok=True)
         with open(out_path, 'wb') as f:
             f.write(data)
-    else:  # Directory (len == 3)
+    else:  # Directory
         os.makedirs(out_path, exist_ok=True)
-        for child in item[2]:  # children
-            write(output, child, path)
+        for child in children[0]:
+            write(output_dir, child, base_path)
